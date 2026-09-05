@@ -95,7 +95,7 @@ export default function CollectorHistory() {
             <button type="button" title="Cancel editing" onClick={() => setEditingPayment(null)}><X size={17} /></button>
           </div>
           <div className="collector-edit-grid">
-            <label>Amount<input type="number" min="1" value={editingPayment.amount} onChange={e => setEditingPayment({ ...editingPayment, amount: e.target.value })} /></label>
+            <label>Amount<input type="number" min="0" value={editingPayment.amount} onChange={e => setEditingPayment({ ...editingPayment, amount: e.target.value })} /></label>
             <label>Date<input type="date" max={localDateInputValue()} value={editingPayment.payment_date} onChange={e => setEditingPayment({ ...editingPayment, payment_date: e.target.value })} /></label>
             <label>Method<select value={editingPayment.payment_method} onChange={e => setEditingPayment({ ...editingPayment, payment_method: e.target.value })}><option>Cash</option><option>GPay</option></select></label>
             <label>Notes<input value={editingPayment.notes || ''} onChange={e => setEditingPayment({ ...editingPayment, notes: e.target.value })} /></label>

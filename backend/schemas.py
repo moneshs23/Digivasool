@@ -101,7 +101,7 @@ class LoanCreate(BaseModel):
 
 
 class LoanPaymentCreate(BaseModel):
-    amount: float
+    amount: float = Field(ge=0)
     payment_method: Literal["Cash", "GPay"]
     payment_date: Optional[str] = None
     collector_name: Optional[str] = None
@@ -110,7 +110,7 @@ class LoanPaymentCreate(BaseModel):
 
 
 class LoanPaymentRecord(BaseModel):
-    id: int
+    id: str
     loan_id: str
     amount: float
     payment_method: str
@@ -118,6 +118,8 @@ class LoanPaymentRecord(BaseModel):
     collector_name: Optional[str] = None
     collector_phone: Optional[str] = None
     notes: Optional[str] = None
+    proof_url: Optional[str] = None
+    proof_filename: Optional[str] = None
 
 
 class LoanPaymentWithBorrower(LoanPaymentRecord):
@@ -161,6 +163,8 @@ class LoanRecord(BaseModel):
     collected_amount: float
     pending_amount: float
     status: str
+    previous_status: Optional[str] = None
+    deleted_at: Optional[str] = None
     total_days_paid: int
     total_days_not_paid: int
     created_at: str
@@ -186,8 +190,14 @@ class OTPVerify(BaseModel):
     collector_name: Optional[str] = None
 
 
+class AdminNotifyLink(BaseModel):
+    name: str
+    phone: str
+    url: str
+
+
 class WhatsAppLinks(BaseModel):
-    notify_admin_url: str
+    notify_admin_urls: List[AdminNotifyLink] = []
     notify_borrower_url: Optional[str] = None
     message_preview: str
 
@@ -202,6 +212,7 @@ class PaymentResponse(BaseModel):
     status: str
     data: Dict[str, Any]
     whatsapp: WhatsAppLinks
+    payment: LoanPaymentRecord
 
 
 class LoanCreateResponse(BaseModel):

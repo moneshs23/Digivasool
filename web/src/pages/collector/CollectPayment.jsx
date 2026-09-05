@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { useAuth } from '../../context/AuthContext';
 import { apiFetch, isDemoMode } from '../../utils/api';
+import { API_BASE_URL } from '../../config';
 import {
   ArrowLeft,
   Banknote,
@@ -11,9 +14,11 @@ import {
   ChevronDown,
   Check,
   Clock3,
+  Download,
   FileText,
   Filter,
   Home,
+  Image as ImageIcon,
   MessageCircle,
   MoreHorizontal,
   Phone,
@@ -24,12 +29,27 @@ import {
   Settings,
   SlidersHorizontal,
   Trash2,
+  Upload,
   UserRound,
   Wallet,
   X,
 } from 'lucide-react';
 
 const money = value => `₹${Math.round(Number(value) || 0).toLocaleString('en-IN')}`;
+
+function resolveProofUrl(url) {
+  if (!url) return '';
+  if (url.startsWith('http') || url.startsWith('data:') || url.startsWith('blob:')) return url;
+  return `${API_BASE_URL}${url}`;
+}
+
+function buildReportMessage(loan) {
+  return `Hi ${loan.customer_name}, here is your collection report:\n` +
+    `✅ Total Paid Days: ${Number(loan.total_days_paid || 0)}\n` +
+    `❌ Not Paid Days: ${Number(loan.total_days_not_paid || 0)}\n` +
+    `💰 Total Paid Amount: ${money(loan.collected_amount)}\n` +
+    `🔴 Remaining Amount: ${money(loan.pending_amount)}`;
+}
 
 function initials(name = '') {
   return name
@@ -95,7 +115,30 @@ export default function CollectPayment() {
   const [loading, setLoading] = useState(false);
   const [successData, setSuccessData] = useState(null);
   const [editingPayment, setEditingPayment] = useState(null);
+  const [downloading, setDownloading] = useState(null);
+  const [proofUploadingId, setProofUploadingId] = useState(null);
+  const receiptRef = useRef(null);
+  const proofFileInput = useRef(null);
+  const proofInputRefs = useRef({});
   const demo = isDemoMode();
+
+  async function uploadProof(paymentId, file) {
+    if (!paymentId || !file) return;
+    setProofUploadingId(paymentId);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await apiFetch(`/api/payments/${paymentId}/proof`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Upload failed');
+      setPayments(current => current.map(p => p.id === paymentId ? { ...p, ...data.data } : p));
+      setSuccessData(current => (current?.payment?.id === paymentId) ? { ...current, payment: { ...current.payment, ...data.data } } : current);
+    } catch (err) {
+      alert('Error uploading proof: ' + err.message);
+    } finally {
+      setProofUploadingId(null);
+    }
+  }
 
   useEffect(() => {
     apiFetch('/api/loans/')
@@ -157,7 +200,15 @@ export default function CollectPayment() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Payment failed');
-      setSuccessData({ ...data, amount: parseFloat(amount), customerName: selectedLoan.customer_name });
+      setSuccessData({
+        ...data,
+        amount: parseFloat(amount),
+        customerName: selectedLoan.customer_name,
+        customerPhone: selectedLoan.customer_phone,
+        paymentMethod: data.payment?.payment_method || paymentMethod,
+        paymentDate: data.payment?.payment_date || paymentDateIso(paymentDate),
+        collectorName: user.name,
+      });
       setSelectedLoan(data.data);
       setLoans(prev => prev.map(loan => loan.id === data.data.id ? data.data : loan).filter(loan => Number(loan.pending_amount) > 0));
       apiFetch(`/api/loans/${selectedLoan.id}/payments`)
@@ -232,12 +283,24 @@ export default function CollectPayment() {
   }
 
   if (successData) {
-    return (
-      <div className="collector-phone-page collector-success-page">
-        <div className="collector-success-check"><CheckCircle2 size={52} /></div>
-        <h1>Transaction saved</h1>
-        <div className="collector-success-amount">{money(successData.amount)}</div>
-        <p>Add another transaction for<br /><strong>{successData.customerName}</strong>?</p>
+    const isGPay = successData.paymentMethod === 'GPay' && Number(successData.amount) > 0;
+    const whatsapp = successData.whatsapp || {};
+    const notifyTargets = [
+      ...(whatsapp.notify_borrower_url ? [{ key: 'borrower', label: `Notify ${successData.customerName}`, url: whatsapp.notify_borrower_url }] : []),
+      ...(whatsapp.notify_admin_urls || []).map(a => ({ key: a.phone, label: `Notify ${a.name}`, url: a.url })),
+    ];
+    const notifySection = notifyTargets.length > 0 && (
+      <div className="collector-notify-section">
+        <div className="collector-notify-label">Notify on WhatsApp</div>
+        {notifyTargets.map(target => (
+          <a key={target.key} className="collector-notify-btn" href={target.url} target="_blank" rel="noreferrer">
+            <MessageCircle size={14} /> {target.label}
+          </a>
+        ))}
+      </div>
+    );
+    const successActions = (
+      <>
         <div className="collector-success-actions">
           <button type="button" className="collector-outline-action" disabled title="Disbursement is not available for collectors yet">
             <Wallet size={18} /> YOU GAVE ₹
@@ -247,6 +310,131 @@ export default function CollectPayment() {
           </button>
         </div>
         <button className="collector-done-btn" type="button" onClick={() => resetPayment(false)}>DONE</button>
+      </>
+    );
+
+    if (isGPay) {
+      const receiptDate = new Date(successData.paymentDate);
+      const receiptId = successData.payment?.id ? String(successData.payment.id).slice(-8).toUpperCase() : '—';
+      const remaining = Number(successData.data?.pending_amount ?? 0);
+      const dateLabel = Number.isNaN(receiptDate.getTime()) ? '' : receiptDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+      const shareMessage =
+        `🧾 *GPay Payment Receipt*\n` +
+        `Receipt No: ${receiptId}\n` +
+        `Customer: ${successData.customerName}\n` +
+        `Amount: ${money(successData.amount)}\n` +
+        `Method: GPay\n` +
+        `Date: ${dateLabel}\n` +
+        `Collected by: ${successData.collectorName}\n` +
+        `Remaining Balance: ${money(remaining)}\n` +
+        `— DigiVasool`;
+      const shareUrl = successData.customerPhone
+        ? `https://wa.me/91${String(successData.customerPhone).replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(shareMessage)}`
+        : '';
+
+      const downloadReceiptImage = async () => {
+        if (!receiptRef.current || downloading) return;
+        setDownloading('image');
+        try {
+          const canvas = await html2canvas(receiptRef.current, { backgroundColor: '#ffffff', scale: 2 });
+          const link = document.createElement('a');
+          link.download = `GPay-Receipt-${receiptId}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+        } catch (err) {
+          alert('Could not save the receipt image: ' + err.message);
+        } finally {
+          setDownloading(null);
+        }
+      };
+
+      const downloadReceiptPdf = async () => {
+        if (!receiptRef.current || downloading) return;
+        setDownloading('pdf');
+        try {
+          const canvas = await html2canvas(receiptRef.current, { backgroundColor: '#ffffff', scale: 2 });
+          const imgData = canvas.toDataURL('image/jpeg', 0.92);
+          const pdf = new jsPDF({ unit: 'px', format: [canvas.width, canvas.height] });
+          pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
+          pdf.save(`GPay-Receipt-${receiptId}.pdf`);
+        } catch (err) {
+          alert('Could not save the receipt PDF: ' + err.message);
+        } finally {
+          setDownloading(null);
+        }
+      };
+
+      return (
+        <div className="collector-phone-page collector-success-page">
+          <div className="collector-receipt-card">
+            <div ref={receiptRef} className="collector-receipt-printable">
+              <div className="collector-receipt-head">
+                <Wallet size={26} />
+                <h2>GPay Receipt</h2>
+                <span>Receipt No. {receiptId}</span>
+              </div>
+              <div className="collector-receipt-amount">{money(successData.amount)}</div>
+              <div className="collector-receipt-rows">
+                <div><span>Customer</span><strong>{successData.customerName}</strong></div>
+                <div><span>Method</span><strong>GPay</strong></div>
+                <div><span>Date</span><strong>{dateLabel}</strong></div>
+                <div><span>Collected by</span><strong>{successData.collectorName}</strong></div>
+                <div><span>Remaining Balance</span><strong>{money(remaining)}</strong></div>
+              </div>
+            </div>
+            {shareUrl && (
+              <a className="collector-receipt-share" href={shareUrl} target="_blank" rel="noreferrer">
+                <MessageCircle size={16} /> Share Receipt on WhatsApp
+              </a>
+            )}
+            <div className="collector-receipt-download-row">
+              <button type="button" className="collector-receipt-download-btn" disabled={!!downloading} onClick={downloadReceiptImage}>
+                <ImageIcon size={15} /> {downloading === 'image' ? 'Saving...' : 'Save as Image'}
+              </button>
+              <button type="button" className="collector-receipt-download-btn" disabled={!!downloading} onClick={downloadReceiptPdf}>
+                <Download size={15} /> {downloading === 'pdf' ? 'Saving...' : 'Save as PDF'}
+              </button>
+            </div>
+            <input
+              ref={proofFileInput}
+              type="file"
+              accept="image/*,application/pdf"
+              style={{ display: 'none' }}
+              onChange={e => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file && successData.payment?.id) uploadProof(successData.payment.id, file);
+              }}
+            />
+            {successData.payment?.proof_url ? (
+              <a className="collector-proof-status uploaded" href={resolveProofUrl(successData.payment.proof_url)} target="_blank" rel="noreferrer">
+                <Check size={14} /> Proof uploaded{successData.payment.proof_filename ? `: ${successData.payment.proof_filename}` : ''}
+              </a>
+            ) : (
+              <button
+                type="button"
+                className="collector-proof-upload-btn"
+                disabled={proofUploadingId === successData.payment?.id}
+                onClick={() => proofFileInput.current?.click()}
+              >
+                <Upload size={15} /> {proofUploadingId === successData.payment?.id ? 'Uploading...' : 'Upload Payment Proof (from borrower)'}
+              </button>
+            )}
+          </div>
+          {notifySection}
+          {successActions}
+        </div>
+      );
+    }
+
+    return (
+      <div className="collector-phone-page collector-success-page">
+        <div className="collector-success-check"><CheckCircle2 size={52} /></div>
+        <h1>Transaction saved</h1>
+        <div className="collector-success-amount">{money(successData.amount)}</div>
+        <p>Add another transaction for<br /><strong>{successData.customerName}</strong>?</p>
+        {notifySection}
+        {successActions}
       </div>
     );
   }
@@ -254,7 +442,7 @@ export default function CollectPayment() {
   if (selectedLoan) {
     const progress = Math.min((Number(selectedLoan.collected_amount || 0) / Number(selectedLoan.due_amount || 1)) * 100, 100);
     const whatsappUrl = selectedLoan.customer_phone
-      ? `https://wa.me/91${String(selectedLoan.customer_phone).replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(`Hi ${selectedLoan.customer_name}, your remaining collection amount is ${money(selectedLoan.pending_amount)}.`)}`
+      ? `https://wa.me/91${String(selectedLoan.customer_phone).replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(buildReportMessage(selectedLoan))}`
       : '';
 
     return (
@@ -287,8 +475,11 @@ export default function CollectPayment() {
         <section className="collector-payment-entry">
           <div className="collector-amount-input">
             <span>₹</span>
-            <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" />
+            <input type="number" min="0" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" />
           </div>
+          <button type="button" className="collector-not-paid-toggle" onClick={() => setAmount('0')}>
+            Customer didn't pay today? Mark as ₹0
+          </button>
           <div className="collector-method-row">
             {['Cash', 'GPay'].map(method => (
               <button key={method} className={paymentMethod === method ? 'active' : ''} type="button" onClick={() => setPaymentMethod(method)}>
@@ -307,8 +498,8 @@ export default function CollectPayment() {
             />
           </label>
           <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2} />
-          <button className="collector-primary-action" type="button" disabled={loading || !amount || !paymentDate} onClick={handleSave}>
-            <CheckCircle2 size={18} /> {loading ? 'Saving...' : `YOU GOT ${money(amount)}`}
+          <button className="collector-primary-action" type="button" disabled={loading || amount === '' || !paymentDate} onClick={handleSave}>
+            <CheckCircle2 size={18} /> {loading ? 'Saving...' : Number(amount) > 0 ? `YOU GOT ${money(amount)}` : 'SAVE — NOT PAID TODAY'}
           </button>
         </section>
 
@@ -336,7 +527,7 @@ export default function CollectPayment() {
                   <button type="button" title="Cancel editing" onClick={() => setEditingPayment(null)}><X size={16} /></button>
                 </div>
                 <div className="collector-inline-edit-grid">
-                  <label>Amount<input type="number" min="1" value={editingPayment.amount} onChange={e => setEditingPayment({ ...editingPayment, amount: e.target.value })} /></label>
+                  <label>Amount<input type="number" min="0" value={editingPayment.amount} onChange={e => setEditingPayment({ ...editingPayment, amount: e.target.value })} /></label>
                   <label>Date<input type="date" max={localDateInputValue()} value={editingPayment.payment_date} onChange={e => setEditingPayment({ ...editingPayment, payment_date: e.target.value })} /></label>
                   <label>Method<select value={editingPayment.payment_method} onChange={e => setEditingPayment({ ...editingPayment, payment_method: e.target.value })}><option>Cash</option><option>GPay</option></select></label>
                   <label>Notes<input value={editingPayment.notes} onChange={e => setEditingPayment({ ...editingPayment, notes: e.target.value })} /></label>
@@ -348,22 +539,54 @@ export default function CollectPayment() {
               <div className="collector-empty">No transactions recorded yet.</div>
             ) : payments.slice().reverse().map(payment => {
               const when = formatDate(payment.payment_date);
+              const isGPayPayment = payment.payment_method === 'GPay';
               return (
                 <div key={payment.id} className="collector-history-row">
-                  <div>
-                    <strong>{when.date}</strong>
-                    <span>{when.time || 'Payment'}</span>
+                  <div className="collector-history-row-main">
+                    <div>
+                      <strong>{when.date}</strong>
+                      <span>{when.time || 'Payment'}</span>
+                    </div>
+                    <div>
+                      <span className="collector-got-label">{Number(payment.amount) > 0 ? 'YOU GOT' : 'NOT PAID'}</span>
+                      <strong>{money(payment.amount)}</strong>
+                      {demo && (
+                        <div className="collector-row-actions">
+                          <button type="button" title="Edit transaction" onClick={() => startEditingPayment(payment)}><Pencil size={13} /></button>
+                          <button type="button" title="Delete transaction" onClick={() => deletePayment(payment)}><Trash2 size={13} /></button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <span className="collector-got-label">YOU GOT</span>
-                    <strong>{money(payment.amount)}</strong>
-                    {demo && (
-                      <div className="collector-row-actions">
-                        <button type="button" title="Edit transaction" onClick={() => startEditingPayment(payment)}><Pencil size={13} /></button>
-                        <button type="button" title="Delete transaction" onClick={() => deletePayment(payment)}><Trash2 size={13} /></button>
-                      </div>
-                    )}
-                  </div>
+                  {isGPayPayment && (
+                    <div className="collector-row-proof">
+                      <input
+                        ref={el => { proofInputRefs.current[payment.id] = el; }}
+                        type="file"
+                        accept="image/*,application/pdf"
+                        style={{ display: 'none' }}
+                        onChange={e => {
+                          const file = e.target.files?.[0];
+                          e.target.value = '';
+                          if (file) uploadProof(payment.id, file);
+                        }}
+                      />
+                      {payment.proof_url ? (
+                        <a className="collector-proof-chip done" href={resolveProofUrl(payment.proof_url)} target="_blank" rel="noreferrer">
+                          <Check size={12} /> Proof attached
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          className="collector-proof-chip"
+                          disabled={proofUploadingId === payment.id}
+                          onClick={() => proofInputRefs.current[payment.id]?.click()}
+                        >
+                          <Upload size={12} /> {proofUploadingId === payment.id ? 'Uploading...' : 'Attach GPay Proof'}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -459,7 +682,7 @@ export default function CollectPayment() {
             <div className="collector-row-side">
               <strong>{money(loan.pending_amount)}</strong>
               {loan.customer_phone ? (
-                <a href={`https://wa.me/91${String(loan.customer_phone).replace(/\D/g, '').slice(-10)}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>REMIND</a>
+                <a href={`https://wa.me/91${String(loan.customer_phone).replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(buildReportMessage(loan))}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>REMIND</a>
               ) : (
                 <button type="button" onClick={e => e.stopPropagation()}>REMIND</button>
               )}

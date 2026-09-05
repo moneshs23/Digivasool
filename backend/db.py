@@ -5,7 +5,7 @@ Replaces the Firebase implementation for local testing without credentials.
 
 import os
 from typing import Dict, Any, List, Optional
-from datetime import date
+from datetime import date, datetime
 from uuid import uuid4
 
 class MockDocument:
@@ -457,6 +457,68 @@ def get_collector_payments_db(collector_name: str) -> List[Dict[str, Any]]:
             p["customer_phone"] = loan.get("customer_phone")
 
     return sorted(payments, key=lambda x: x.get("payment_date", ""), reverse=True)
+
+# ── Admin Access Requests ─────────────────────────────────────────────────────
+# Anyone whose phone isn't in ADMIN_USERS must be approved by an existing admin
+# before they can log in. Approvals persist for the life of this server process.
+
+_admin_access_requests: List[Dict[str, Any]] = []
+_approved_admin_phones: set = set()
+
+
+def _normalize_phone(raw: str) -> str:
+    return (raw or "").replace(" ", "").replace("-", "").lstrip("+").lower()
+
+
+def is_admin_phone_allowed_db(phone: str, admin_users: List[Dict[str, Any]]) -> bool:
+    normalized = _normalize_phone(phone)
+    if not normalized:
+        return False
+    allowed = {_normalize_phone(a.get("phone", "")) for a in admin_users if a.get("phone")}
+    return normalized in allowed or normalized in _approved_admin_phones
+
+
+def get_admin_display_name_db(phone: str, admin_users: List[Dict[str, Any]]) -> Optional[str]:
+    normalized = _normalize_phone(phone)
+    for a in admin_users:
+        if _normalize_phone(a.get("phone", "")) == normalized:
+            return a["name"]
+    for r in reversed(_admin_access_requests):
+        if r["status"] == "approved" and _normalize_phone(r["phone"]) == normalized:
+            return r["name"]
+    return None
+
+
+def create_admin_access_request_db(name: str, phone: str) -> Dict[str, Any]:
+    normalized = _normalize_phone(phone)
+    for r in _admin_access_requests:
+        if r["status"] == "pending" and _normalize_phone(r["phone"]) == normalized:
+            return r
+    record = {
+        "id": str(uuid4()),
+        "name": name,
+        "phone": phone,
+        "status": "pending",
+        "requested_at": datetime.utcnow().isoformat(),
+    }
+    _admin_access_requests.append(record)
+    return record
+
+
+def get_pending_admin_access_requests_db() -> List[Dict[str, Any]]:
+    return [r for r in _admin_access_requests if r["status"] == "pending"]
+
+
+def resolve_admin_access_request_db(request_id: str, approve: bool) -> Optional[Dict[str, Any]]:
+    for r in _admin_access_requests:
+        if r["id"] == request_id:
+            if r["status"] == "pending":
+                r["status"] = "approved" if approve else "denied"
+                if approve:
+                    _approved_admin_phones.add(_normalize_phone(r["phone"]))
+            return r
+    return None
+
 
 # ── Compatibility Aliases ─────────────────────────────────────────────────────
 

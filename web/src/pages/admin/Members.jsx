@@ -5,13 +5,20 @@ import {
   Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, GitMerge,
   Calendar, CalendarDays, CalendarRange, Settings2, Check, X, Wrench, Store,
   MessageSquare, Languages, Hash, ExternalLink, CheckCircle2, Search,
-  ArrowUpDown, Eye, ChevronLeft, ChevronRight
+  ArrowUpDown, Eye, ChevronLeft, ChevronRight, Trash2
 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
+import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { ZONES } from '../../context/AppDataContext';
 import PhotoCapture from '../../components/PhotoCapture';
+
+function resolveProofUrl(url) {
+  if (!url) return '';
+  if (url.startsWith('http') || url.startsWith('data:') || url.startsWith('blob:')) return url;
+  return `${API_BASE_URL}${url}`;
+}
 
 // SMS to the borrower can be sent in any of these Indian languages
 const SMS_LANGUAGES = [
@@ -182,7 +189,79 @@ function MetricCard({ icon: Icon, label, value, tone = 'indigo', sub }) {
   );
 }
 
-function CustomerDetailPanel({ loan, onClose, onCloseLoan, canClose }) {
+function PaymentHistorySection({ loanId }) {
+  const [payments, setPayments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch(`/api/loans/${loanId}/payments`)
+      .then(r => r.json())
+      .then(data => { if (!cancelled) setPayments(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!cancelled) setPayments([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [loanId]);
+
+  if (loading) {
+    return (
+      <div className="customer-payment-history">
+        <SectionLabel>Payment History</SectionLabel>
+        <div className="skeleton" style={{ height: 60, borderRadius: 12 }} />
+      </div>
+    );
+  }
+  if (payments.length === 0) return null;
+
+  return (
+    <div className="customer-payment-history">
+      <SectionLabel>Payment History</SectionLabel>
+      {payments.map(p => {
+        const isGPay = p.payment_method === 'GPay';
+        const isNotPaid = Number(p.amount || 0) <= 0;
+        const expanded = expandedId === p.id;
+        const paymentDate = new Date(p.payment_date);
+        const dateLabel = Number.isNaN(paymentDate.getTime()) ? '' : paymentDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        return (
+          <div key={p.id} className="payment-history-row">
+            <button
+              type="button"
+              className="payment-history-row-main"
+              onClick={() => isGPay && setExpandedId(expanded ? null : p.id)}
+              style={{ cursor: isGPay ? 'pointer' : 'default' }}
+            >
+              <div>
+                <strong>{isNotPaid ? 'Not paid' : `₹${Number(p.amount || 0).toLocaleString('en-IN')}`}</strong>
+                <span>{dateLabel} {p.collector_name ? `· ${p.collector_name}` : ''}</span>
+              </div>
+              <span className={`badge ${isGPay ? 'badge-indigo' : 'badge-gray'}`}>{p.payment_method}</span>
+            </button>
+            {expanded && isGPay && (
+              <div className="payment-receipt-mini">
+                <div><span>Receipt No.</span><strong>{String(p.id).slice(-8).toUpperCase()}</strong></div>
+                <div><span>Collected by</span><strong>{p.collector_name || '—'}</strong></div>
+                <div><span>Notes</span><strong>{p.notes || '—'}</strong></div>
+                <div>
+                  <span>Payment proof</span>
+                  {p.proof_url ? (
+                    <a href={resolveProofUrl(p.proof_url)} target="_blank" rel="noreferrer" style={{ color: 'var(--brand-light)', fontWeight: 700 }}>
+                      View {p.proof_filename || 'proof'}
+                    </a>
+                  ) : (
+                    <strong style={{ color: 'var(--text-3)' }}>Not uploaded yet</strong>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CustomerDetailPanel({ loan, onClose, onCloseLoan, onDeleteLoan, canClose }) {
   if (!loan) return null;
   const metrics = getLoanMetrics(loan);
   const totalDeductions = loan.monthly_interest_amount || 0;
@@ -225,17 +304,27 @@ function CustomerDetailPanel({ loan, onClose, onCloseLoan, canClose }) {
         {loan.guarantor_name && <div><ShieldCheck size={14} /> {loan.guarantor_name}</div>}
       </div>
 
-      {canClose && metrics.pendingAmount <= 0 && (
+      <PaymentHistorySection key={loan.id} loanId={loan.id} />
+
+      {canClose && (
         <div className="customer-close-loan">
-          <button
-            type="button"
-            className={`btn ${loan.status === 'closed' ? 'btn-secondary' : 'btn-success'}`}
-            disabled={loan.status === 'closed'}
-            onClick={() => onCloseLoan(loan)}
-          >
-            <CheckCircle2 size={15} /> {loan.status === 'closed' ? 'Loan closed' : 'Mark loan as closed'}
+          {metrics.pendingAmount <= 0 && (
+            <>
+              <button
+                type="button"
+                className={`btn ${loan.status === 'closed' ? 'btn-secondary' : 'btn-success'}`}
+                disabled={loan.status === 'closed'}
+                onClick={() => onCloseLoan(loan)}
+              >
+                <CheckCircle2 size={15} /> {loan.status === 'closed' ? 'Loan closed' : 'Mark loan as closed'}
+              </button>
+              <span>Payment is complete. The loan history will remain saved.</span>
+            </>
+          )}
+          <button type="button" className="btn btn-danger" onClick={() => onDeleteLoan(loan)}>
+            <Trash2 size={15} /> Delete Borrower
           </button>
-          <span>Payment is complete. The loan history will remain saved.</span>
+          <span>Moves this borrower to the Recycle Bin. You can restore it later.</span>
         </div>
       )}
     </aside>
@@ -296,6 +385,28 @@ export default function Members({ readOnly = false }) {
       alert('Borrowers merged successfully!');
     } catch (err) {
       alert('Error merging borrowers: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteLoan = async (loan) => {
+    const pending = Number(loan.pending_amount || 0);
+    const warning = pending > 0
+      ? `₹${pending.toLocaleString('en-IN')} is still outstanding.`
+      : 'This loan is already fully paid.';
+    const confirmed = window.confirm(`Delete ${loan.customer_name}'s loan? ${warning} It will be moved to the Recycle Bin and can be restored later.`);
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/api/loans/${loan.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Delete failed');
+      setLoans(current => current.filter(item => item.id !== loan.id));
+      setSelectedLoanId(null);
+    } catch (err) {
+      alert('Error deleting borrower: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -598,7 +709,7 @@ export default function Members({ readOnly = false }) {
                         <div className="progress-bar"><div className="progress-fill" style={{ width: `${metrics.progress}%`, background: 'var(--green)' }} /></div>
                         <span>{Math.round(metrics.progress)}%</span>
                       </div>
-                      {expanded && <CustomerDetailPanel loan={loan} onClose={() => setExpandedId(null)} onCloseLoan={handleCloseLoan} canClose={canCreate} />}
+                      {expanded && <CustomerDetailPanel loan={loan} onClose={() => setExpandedId(null)} onCloseLoan={handleCloseLoan} onDeleteLoan={handleDeleteLoan} canClose={canCreate} />}
                     </article>
                   );
                 })}
@@ -615,7 +726,7 @@ export default function Members({ readOnly = false }) {
           </div>
         </section>
 
-        <CustomerDetailPanel loan={selectedLoan} onClose={() => setSelectedLoanId(null)} onCloseLoan={handleCloseLoan} canClose={canCreate} />
+        <CustomerDetailPanel loan={selectedLoan} onClose={() => setSelectedLoanId(null)} onCloseLoan={handleCloseLoan} onDeleteLoan={handleDeleteLoan} canClose={canCreate} />
       </div>
 
       {canCreate && (

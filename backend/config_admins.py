@@ -4,9 +4,8 @@ Each admin needs a name and either an email OR a phone number.
 """
 
 ADMIN_USERS = [
-    {"name": "Admin 1", "email": "admin1@gmail.com", "phone": ""},
-    {"name": "Admin 2", "email": "admin2@gmail.com", "phone": ""},
-    {"name": "Admin 3", "email": "admin3@gmail.com", "phone": ""},
+    {"name": "Rahul", "email": "", "phone": "+919344645181"},
+    {"name": "Vijayakumar", "email": "", "phone": "+918610620533"},
 ]
 
 # Admin secret keyword (for extra identity gate before OTP)

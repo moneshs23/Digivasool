@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { API_BASE_URL } from '../config';
-import { ShieldCheck, Mail, Phone, ChevronRight, ArrowLeft, Lock, HardHat, Zap, Wrench, Languages } from 'lucide-react';
+import { ShieldCheck, Phone, ChevronRight, ArrowLeft, Lock, HardHat, Zap, Wrench, Languages, Clock3, User } from 'lucide-react';
 
 export default function Login() {
   const { login } = useAuth();
@@ -13,14 +13,11 @@ export default function Login() {
   const [collectorName, setCollectorName] = useState('');
   const [collectors, setCollectors] = useState([]);
   const [contact, setContact] = useState('');
-  const [contactType, setContactType] = useState('email');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [devOtp, setDevOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const otpRefs = useRef([]);
-
-  const ADMIN_NAMES = ['Admin 1', 'Admin 2', 'Admin 3'];
 
   // Load collectors from backend
   useEffect(() => {
@@ -54,6 +51,10 @@ export default function Login() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed to send OTP');
+      if (data.status === 'pending_approval') {
+        setStep('pending');
+        return;
+      }
       if (data.dev_mode) setDevOtp(data.dev_otp);
       setStep('otp');
     } catch (err) {
@@ -148,7 +149,7 @@ export default function Login() {
       <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '6px 14px', marginBottom: 24, fontSize: 12, color: 'var(--text-2)', fontWeight: 500, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <Zap size={13} style={{ color: 'var(--amber)', flexShrink: 0 }} />
         <span style={{ fontWeight: 700 }}>Quick demo login:</span>
-        {[{role:'admin',name:'Arjun Nair',label:'Admin'},{role:'collector',name:'Collector 1',label:'Collector'}].map(d => (
+        {[{role:'admin',name:'Rahul',label:'Admin'},{role:'collector',name:'Collector 1',label:'Collector'}].map(d => (
           <button key={d.role} onClick={() => login(d.role, d.name, '', true)} style={{ background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border-2)', borderRadius: 6, padding: '3px 10px', fontWeight: 600, cursor: 'pointer', fontSize: 11 }}>
             {d.label}
           </button>
@@ -201,7 +202,7 @@ export default function Login() {
               <button
                 key={rc.id}
                 id={`${rc.id}-role-btn`}
-                onClick={() => { setRole(rc.id); setStep('form'); setError(''); setContactType(rc.id === 'collector' ? 'phone' : 'email'); }}
+                onClick={() => { setRole(rc.id); setStep('form'); setError(''); }}
                 style={{
                   width: '100%', padding: '18px 16px', borderRadius: '16px', marginBottom: '12px',
                   background: rc.soft, border: `2px solid ${rc.id === role ? rc.border : 'transparent'}`,
@@ -241,11 +242,15 @@ export default function Login() {
 
             {role === 'admin' && (
               <div className="form-group">
-                <label className="form-label">Select Your Admin Name</label>
-                <select required className="form-input" value={adminName} onChange={e => setAdminName(e.target.value)} style={{ cursor: 'pointer' }}>
-                  <option value="">-- Choose your name --</option>
-                  {ADMIN_NAMES.map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
+                <label className="form-label">Your Name</label>
+                <div style={{ position: 'relative' }}>
+                  <User size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-2)' }} />
+                  <input required type="text" className="form-input" style={{ paddingLeft: '42px' }}
+                    value={adminName} onChange={e => setAdminName(e.target.value)} placeholder="e.g. Rahul" />
+                </div>
+                <p style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '6px' }}>
+                  Only approved admin numbers get in instantly — anyone else is sent to the admin for approval.
+                </p>
               </div>
             )}
 
@@ -260,32 +265,14 @@ export default function Login() {
             )}
 
             <div className="form-group">
-              <label className="form-label">Login With</label>
-              {role !== 'collector' && (
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                  {['email', 'phone'].map(t => (
-                    <button key={t} type="button" onClick={() => setContactType(t)} style={{
-                      flex: 1, padding: '10px', borderRadius: '12px', display: 'flex', alignItems: 'center',
-                      justifyContent: 'center', gap: '6px', fontSize: '13px', fontWeight: 700, cursor: 'pointer',
-                      border: `2px solid ${contactType === t ? 'var(--brand)' : 'var(--border)'}`,
-                      background: contactType === t ? 'var(--brand-soft)' : 'var(--bg)',
-                      color: contactType === t ? 'var(--brand-light)' : 'var(--text-2)',
-                    }}>
-                      {t === 'email' ? <Mail size={16} /> : <Phone size={16} />}
-                      {t === 'email' ? 'Email' : 'Mobile'}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <label className="form-label">Mobile Number</label>
               <div style={{ position: 'relative' }}>
-                {contactType === 'email'
-                  ? <Mail size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-2)' }} />
-                  : <Phone size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-2)' }} />}
+                <Phone size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-2)' }} />
                 <input required id="contact-input"
-                  type={contactType === 'email' ? 'email' : 'tel'}
+                  type="tel"
                   className="form-input" style={{ paddingLeft: '42px' }}
                   value={contact} onChange={e => { setContact(e.target.value); setError(''); }}
-                  placeholder={contactType === 'email' ? 'yourname@gmail.com' : '+91 9876543210'}
+                  placeholder="+91 9876543210"
                   autoFocus />
               </div>
               {role === 'collector' && (
@@ -349,6 +336,25 @@ export default function Login() {
               style={{ width: '100%', marginTop: '12px', background: 'none', border: 'none', color: 'var(--text-2)', fontSize: '13px', cursor: 'pointer', fontWeight: 600 }}>
               Didn't get it? Resend OTP
             </button>
+          </div>
+        )}
+
+        {/* ── Waiting for admin approval ── */}
+        {step === 'pending' && (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{
+              width: '64px', height: '64px', borderRadius: '50%',
+              background: 'rgba(245,158,11,0.12)', border: '2px solid #f59e0b',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px',
+            }}>
+              <Clock3 size={28} color="#f59e0b" />
+            </div>
+            <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '8px' }}>Waiting for approval</h2>
+            <p style={{ color: 'var(--text-2)', fontSize: '14px', marginBottom: '24px' }}>
+              This number isn't an approved admin yet. Your request has been sent to the admin —
+              once they approve it, come back and log in with the same number.
+            </p>
+            <button type="button" className="save-btn" onClick={reset}>Back to login</button>
           </div>
         )}
 

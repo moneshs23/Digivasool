@@ -27,6 +27,8 @@ export async function apiFetch(path, options = {}) {
   if (isDemoMode()) {
     return demoFetch(path, options);
   }
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers = { ...getAuthHeaders(), ...(options.headers || {}) };
+  if (isFormData) delete headers['Content-Type']; // let the browser set the multipart boundary
   return fetch(`${API_BASE_URL}${path}`, { ...options, headers });
 }

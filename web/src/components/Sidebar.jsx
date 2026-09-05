@@ -5,7 +5,7 @@ import { useLanguage } from '../context/LanguageContext';
 import {
   LayoutDashboard, Users, BookOpen,
   BarChart3, Receipt, UserCog, Settings, LogOut,
-  ChevronLeft, TrendingUp, CreditCard, Wallet, Languages
+  ChevronLeft, TrendingUp, CreditCard, Wallet, Languages, Trash2
 } from 'lucide-react';
 
 const ADMIN_NAV = [
@@ -20,6 +20,7 @@ const ADMIN_NAV = [
   { section: 'navSystem' },
   { to: '/staff',     icon: UserCog,         labelKey: 'staff' },
   { to: '/settings',  icon: Settings,        labelKey: 'settings' },
+  { to: '/recycle-bin', icon: Trash2,        labelKey: 'recycleBin' },
 ];
 
 const COLLECTOR_NAV = [

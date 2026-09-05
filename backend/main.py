@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 from db import (
@@ -17,6 +18,11 @@ from db import (
     get_firestore_client,
     get_loan_payments_db,
     get_collector_payments_db,
+    is_admin_phone_allowed_db,
+    get_admin_display_name_db,
+    create_admin_access_request_db,
+    get_pending_admin_access_requests_db,
+    resolve_admin_access_request_db,
 )
 from schemas import (
     AdminLendingRecord,
@@ -60,6 +66,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 @app.on_event("startup")
 def on_startup():
     init_db()
@@ -70,7 +79,7 @@ def on_startup():
 # ==============================
 
 import otp_store
-from config_admins import ADMIN_USERS, ADMIN_SECRET_KEYWORD, COLLECTOR_USERS, ADMIN_WHATSAPP
+from config_admins import ADMIN_USERS, ADMIN_SECRET_KEYWORD, COLLECTOR_USERS
 
 
 def _write_audit(actor: str, action: str, detail: str = ""):
@@ -111,9 +120,12 @@ async def request_otp(body: OTPRequest):
     contact = body.contact.strip().lower()
 
     if body.role == "admin":
-        admin_names = [a["name"].lower() for a in ADMIN_USERS]
-        if not body.admin_name or body.admin_name.lower() not in admin_names:
-            raise HTTPException(status_code=404, detail="Admin not found")
+        if not is_admin_phone_allowed_db(body.contact, ADMIN_USERS):
+            if not body.admin_name or not body.admin_name.strip():
+                raise HTTPException(status_code=400, detail="Please enter your name so an admin can review your request.")
+            create_admin_access_request_db(body.admin_name.strip(), body.contact.strip())
+            _write_audit(body.admin_name.strip(), "ADMIN_ACCESS_REQUESTED", f"Access requested from {body.contact.strip()}")
+            return {"status": "pending_approval", "message": "Your request has been sent to the admin for approval. You'll be notified once approved."}
 
     elif body.role == "collector":
         collector_phones = [c["phone"].replace(" ", "") for c in COLLECTOR_USERS]
@@ -126,7 +138,7 @@ async def request_otp(body: OTPRequest):
                 raise HTTPException(status_code=404, detail="Collector not found")
 
     otp = otp_store.generate_and_store(contact)
-    return {"message": "OTP generated", "dev_otp": otp, "dev_mode": True}
+    return {"status": "otp_sent", "message": "OTP generated", "dev_otp": otp, "dev_mode": True}
 
 
 @app.post("/api/auth/verify-otp")
@@ -137,8 +149,11 @@ async def verify_otp(body: OTPVerify):
         raise HTTPException(status_code=401, detail="Wrong or expired OTP. Please try again.")
 
     if body.role == "admin":
-        _write_audit(body.admin_name or "admin", "LOGIN", f"Admin logged in via {contact}")
-        return {"role": "admin", "name": body.admin_name}
+        if not is_admin_phone_allowed_db(body.contact, ADMIN_USERS):
+            raise HTTPException(status_code=403, detail="This number is not yet approved for admin access.")
+        name = get_admin_display_name_db(body.contact, ADMIN_USERS) or (body.admin_name or "Admin").strip()
+        _write_audit(name, "LOGIN", f"Admin logged in via {contact}")
+        return {"role": "admin", "name": name}
 
     matched = None
     for col in COLLECTOR_USERS:
@@ -188,6 +203,9 @@ async def upload_proof(loan_id: str, file: UploadFile = File(...), x_user_role: 
     return {"status": "success", "file_path": file_path}
 
 
+ALLOWED_PROOF_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "application/pdf"}
+
+
 # --- AUTH DEPENDENCIES ---
 def get_current_user(x_user_role: str = Header(default="admin")):
     return {
@@ -212,6 +230,53 @@ def require_role(*allowed_roles: str):
         return user
 
     return _dep
+
+
+@app.post("/api/payments/{payment_id}/proof")
+async def upload_payment_proof(payment_id: str, file: UploadFile = File(...), user=Depends(require_role("admin", "collector"))):
+    """Attach a proof image/PDF (e.g. a GPay screenshot the borrower shared) to a specific payment."""
+    db = get_firestore_client()
+    payment_ref = db.collection("loan_payments").document(payment_id)
+    payment_doc = payment_ref.get()
+    if not payment_doc.exists:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    if file.content_type not in ALLOWED_PROOF_TYPES:
+        raise HTTPException(status_code=400, detail="Only image or PDF files are allowed")
+
+    folder = f"uploads/payments/{payment_id}"
+    os.makedirs(folder, exist_ok=True)
+    file_path = f"{folder}/{file.filename}"
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    proof_url = f"/uploads/payments/{payment_id}/{file.filename}"
+    payment_ref.update({"proof_url": proof_url, "proof_filename": file.filename})
+    _write_audit(user["role"], "PAYMENT_PROOF_UPLOADED", f"Proof uploaded for payment {payment_id}: {file.filename}")
+    return {"status": "success", "data": payment_ref.get().to_dict()}
+
+
+@app.get("/api/admin/access-requests")
+async def list_admin_access_requests(user=Depends(require_admin)):
+    """Pending admin-login requests from unrecognized phone numbers, awaiting approval."""
+    return get_pending_admin_access_requests_db()
+
+
+@app.post("/api/admin/access-requests/{request_id}/approve")
+async def approve_admin_access_request(request_id: str, user=Depends(require_admin)):
+    record = resolve_admin_access_request_db(request_id, approve=True)
+    if not record:
+        raise HTTPException(status_code=404, detail="Request not found")
+    _write_audit("admin", "ADMIN_ACCESS_APPROVED", f"Approved admin access for {record['name']} ({record['phone']})")
+    return {"status": "success", "data": record}
+
+
+@app.post("/api/admin/access-requests/{request_id}/deny")
+async def deny_admin_access_request(request_id: str, user=Depends(require_admin)):
+    record = resolve_admin_access_request_db(request_id, approve=False)
+    if not record:
+        raise HTTPException(status_code=404, detail="Request not found")
+    _write_audit("admin", "ADMIN_ACCESS_DENIED", f"Denied admin access for {record['name']} ({record['phone']})")
+    return {"status": "success", "data": record}
 
 
 # ==============================
@@ -460,6 +525,108 @@ async def close_loan(loan_id: str, user=Depends(require_admin)):
     return {"status": "success", "data": updated_loan, "message": "Loan marked as closed"}
 
 
+@app.delete("/api/loans/{loan_id}")
+async def delete_loan(loan_id: str, user=Depends(require_admin)):
+    """Move a loan to the recycle bin (soft delete). History is preserved and it can be restored."""
+    db = get_firestore_client()
+    loan_ref = db.collection("loans").document(loan_id)
+    loan_doc = loan_ref.get()
+    if not loan_doc.exists:
+        raise HTTPException(status_code=404, detail="Loan not found")
+
+    loan = loan_doc.to_dict()
+    if loan.get("status") == "deleted":
+        raise HTTPException(status_code=400, detail="Loan is already in the recycle bin")
+
+    loan_ref.update({
+        "status": "deleted",
+        "previous_status": loan.get("status", "active"),
+        "deleted_at": datetime.utcnow().isoformat(),
+    })
+    _write_audit(
+        "admin",
+        "LOAN_DELETED",
+        f"Moved loan {loan_id} to recycle bin for {loan.get('customer_name', 'unknown borrower')}",
+    )
+    return {"status": "success", "message": "Loan moved to recycle bin"}
+
+
+@app.get("/api/loans/deleted", response_model=List[LoanRecord])
+async def get_deleted_loans(user=Depends(require_admin)):
+    """List loans currently in the recycle bin."""
+    db = get_firestore_client()
+    docs = db.collection("loans").get()
+    loans = []
+    for doc in docs:
+        l = doc.to_dict()
+        if l.get("status") != "deleted":
+            continue
+        l.setdefault("id", doc.id)
+        l.setdefault("repayment_frequency", "monthly")
+        l.setdefault("repayment_amount", 0.0)
+        l.setdefault("total_days_not_paid", 0)
+        loans.append(l)
+    loans.sort(key=lambda l: l.get("deleted_at") or "", reverse=True)
+    return [LoanRecord(**l) for l in loans]
+
+
+@app.post("/api/loans/{loan_id}/restore", response_model=LoanRecord)
+async def restore_loan(loan_id: str, user=Depends(require_admin)):
+    """Restore a loan out of the recycle bin back to its previous status."""
+    db = get_firestore_client()
+    loan_ref = db.collection("loans").document(loan_id)
+    loan_doc = loan_ref.get()
+    if not loan_doc.exists:
+        raise HTTPException(status_code=404, detail="Loan not found")
+
+    loan = loan_doc.to_dict()
+    if loan.get("status") != "deleted":
+        raise HTTPException(status_code=400, detail="Loan is not in the recycle bin")
+
+    restored_status = loan.get("previous_status") or "active"
+    loan_ref.update({"status": restored_status, "previous_status": None, "deleted_at": None})
+    _write_audit(
+        "admin",
+        "LOAN_RESTORED",
+        f"Restored loan {loan_id} from recycle bin for {loan.get('customer_name', 'unknown borrower')}",
+    )
+    updated_loan = loan_ref.get().to_dict()
+    updated_loan.setdefault("repayment_frequency", "monthly")
+    updated_loan.setdefault("repayment_amount", 0.0)
+    updated_loan.setdefault("total_days_not_paid", 0)
+    return LoanRecord(**updated_loan)
+
+
+@app.delete("/api/loans/{loan_id}/permanent")
+async def permanently_delete_loan(loan_id: str, user=Depends(require_admin)):
+    """Permanently erase a loan already sitting in the recycle bin, including its payment history."""
+    db = get_firestore_client()
+    loan_ref = db.collection("loans").document(loan_id)
+    loan_doc = loan_ref.get()
+    if not loan_doc.exists:
+        raise HTTPException(status_code=404, detail="Loan not found")
+
+    loan = loan_doc.to_dict()
+    if loan.get("status") != "deleted":
+        raise HTTPException(status_code=400, detail="Only loans in the recycle bin can be permanently deleted")
+
+    payment_docs = db.collection("loan_payments").where("loan_id", "==", loan_id).get()
+    for p in payment_docs:
+        p.delete()
+
+    reminder_docs = db.collection("reminders").where("transaction_id", "==", loan_id).get()
+    for r in reminder_docs:
+        r.delete()
+
+    loan_ref.delete()
+    _write_audit(
+        "admin",
+        "LOAN_PERMANENTLY_DELETED",
+        f"Permanently deleted loan {loan_id} for {loan.get('customer_name', 'unknown borrower')}",
+    )
+    return {"status": "success", "message": "Loan permanently deleted"}
+
+
 @app.get("/api/loans/", response_model=List[LoanRecord])
 async def get_loans(user=Depends(require_role("admin", "collector"))):
     db = get_firestore_client()
@@ -468,6 +635,8 @@ async def get_loans(user=Depends(require_role("admin", "collector"))):
 
     for doc in docs:
         l = doc.to_dict()
+        if l.get("status") == "deleted":
+            continue
         l.setdefault("id", doc.id)
         l.setdefault("repayment_frequency", "monthly")
         l.setdefault("repayment_amount", 0.0)
@@ -525,15 +694,18 @@ async def record_payment(loan_id: str, payment: LoanPaymentCreate, user=Depends(
     db.collection("loan_payments").document(payment_id).set(payment_record)
 
     # Update loan totals
+    is_paid_day = payment.amount > 0
     new_collected = loan["collected_amount"] + payment.amount
     new_pending = loan["due_amount"] - new_collected
-    new_days_paid = loan["total_days_paid"] + 1
+    new_days_paid = loan["total_days_paid"] + (1 if is_paid_day else 0)
+    new_days_not_paid = loan.get("total_days_not_paid", 0) + (0 if is_paid_day else 1)
     new_status = "closed" if new_pending <= 0 else loan["status"]
 
     loan_ref.update({
         "collected_amount": new_collected,
         "pending_amount": new_pending,
         "total_days_paid": new_days_paid,
+        "total_days_not_paid": new_days_not_paid,
         "status": new_status,
     })
 
@@ -552,40 +724,74 @@ async def record_payment(loan_id: str, payment: LoanPaymentCreate, user=Depends(
     date_str = datetime.utcnow().strftime("%d %b %Y, %I:%M %p")
     collector_tag = payment.collector_name or "Collector"
 
-    admin_msg = (
-        f"✅ *Payment Received*\n"
-        f"👤 Borrower: {loan['customer_name']}\n"
-        f"💰 Amount: ₹{payment.amount:,.0f}\n"
-        f"💳 Method: {payment.payment_method}\n"
-        f"👷 Collected by: {collector_tag}\n"
-        f"🗒 Notes: {payment.notes or 'None'}\n"
-        f"📅 Date: {date_str}\n"
-        f"🔴 Still Pending: ₹{max(new_pending, 0):,.0f}"
-    )
+    if is_paid_day:
+        admin_msg = (
+            f"✅ *Payment Received*\n"
+            f"👤 Borrower: {loan['customer_name']}\n"
+            f"💰 Amount: ₹{payment.amount:,.0f}\n"
+            f"💳 Method: {payment.payment_method}\n"
+            f"👷 Collected by: {collector_tag}\n"
+            f"🗒 Notes: {payment.notes or 'None'}\n"
+            f"📅 Date: {date_str}\n"
+            f"📊 Total Paid Days: {new_days_paid}\n"
+            f"❌ Not Paid Days: {new_days_not_paid}\n"
+            f"💵 Total Paid Amount: ₹{new_collected:,.0f}\n"
+            f"🔴 Remaining Amount: ₹{max(new_pending, 0):,.0f}"
+        )
+        borrower_msg = (
+            f"✅ *Payment Confirmation*\n"
+            f"Hello {loan['customer_name']},\n"
+            f"Your payment of ₹{payment.amount:,.0f} ({payment.payment_method}) has been received.\n"
+            f"📅 Date: {date_str}\n"
+            f"📊 Total Paid Days: {new_days_paid}\n"
+            f"❌ Not Paid Days: {new_days_not_paid}\n"
+            f"💵 Total Paid Amount: ₹{new_collected:,.0f}\n"
+            f"💰 Remaining Amount: ₹{max(new_pending, 0):,.0f}\n"
+            f"Thank you! — DigiVasool"
+        )
+    else:
+        admin_msg = (
+            f"⚠️ *Not Paid Today*\n"
+            f"👤 Borrower: {loan['customer_name']}\n"
+            f"👷 Visited by: {collector_tag}\n"
+            f"🗒 Notes: {payment.notes or 'None'}\n"
+            f"📅 Date: {date_str}\n"
+            f"📊 Total Paid Days: {new_days_paid}\n"
+            f"❌ Not Paid Days: {new_days_not_paid}\n"
+            f"💵 Total Paid Amount: ₹{new_collected:,.0f}\n"
+            f"🔴 Remaining Amount: ₹{max(new_pending, 0):,.0f}"
+        )
+        borrower_msg = (
+            f"⚠️ *Payment Reminder*\n"
+            f"Hello {loan['customer_name']},\n"
+            f"We noted no payment was collected from you today.\n"
+            f"📅 Date: {date_str}\n"
+            f"📊 Total Paid Days: {new_days_paid}\n"
+            f"❌ Not Paid Days: {new_days_not_paid}\n"
+            f"💵 Total Paid Amount: ₹{new_collected:,.0f}\n"
+            f"💰 Remaining Amount: ₹{max(new_pending, 0):,.0f}\n"
+            f"Thank you! — DigiVasool"
+        )
 
-    borrower_msg = (
-        f"✅ *Payment Confirmation*\n"
-        f"Hello {loan['customer_name']},\n"
-        f"Your payment of ₹{payment.amount:,.0f} ({payment.payment_method}) has been received.\n"
-        f"📅 Date: {date_str}\n"
-        f"💰 Remaining Balance: ₹{max(new_pending, 0):,.0f}\n"
-        f"Thank you! — DigiVasool"
-    )
-
-    admin_url = _build_whatsapp_url(ADMIN_WHATSAPP, admin_msg)
     borrower_url = None
     borrower_phone = loan.get("customer_phone") or ""
     if borrower_phone:
         borrower_url = _build_whatsapp_url(borrower_phone, borrower_msg)
 
+    admin_urls = [
+        {"name": a["name"], "phone": a["phone"], "url": _build_whatsapp_url(a["phone"], admin_msg)}
+        for a in ADMIN_USERS if a.get("phone")
+    ]
+
     return PaymentResponse(
         status="success",
         data=updated_loan,
         whatsapp=WhatsAppLinks(
-            notify_admin_url=admin_url,
+            notify_admin_urls=admin_urls,
             notify_borrower_url=borrower_url,
             message_preview=admin_msg,
-        )
+        ),
+        payment=LoanPaymentRecord(**payment_record),
     )
 
 
