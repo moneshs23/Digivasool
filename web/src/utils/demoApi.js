@@ -20,14 +20,15 @@ function buildPaymentWhatsAppLinks(loan, payment, isPaidDay) {
   const remainingStr = `₹${Math.max(0, Number(loan.pending_amount || 0)).toLocaleString('en-IN')}`;
   const paidDays = Number(loan.total_days_paid || 0);
   const notPaidDays = Number(loan.total_days_not_paid || 0);
+  const notPaidAmountStr = `₹${(notPaidDays * Number(loan.repayment_amount || 0)).toLocaleString('en-IN')}`;
 
   const adminMsg = isPaidDay
-    ? `✅ *Payment Received*\n👤 Borrower: ${loan.customer_name}\n💰 Amount: ${amountStr}\n💳 Method: ${payment.payment_method}\n👷 Collected by: ${collectorTag}\n🗒 Notes: ${payment.notes || 'None'}\n📅 Date: ${dateLabel}\n📊 Total Paid Days: ${paidDays}\n❌ Not Paid Days: ${notPaidDays}\n💵 Total Paid Amount: ${collectedStr}\n🔴 Remaining Amount: ${remainingStr}`
-    : `⚠️ *Not Paid Today*\n👤 Borrower: ${loan.customer_name}\n👷 Visited by: ${collectorTag}\n🗒 Notes: ${payment.notes || 'None'}\n📅 Date: ${dateLabel}\n📊 Total Paid Days: ${paidDays}\n❌ Not Paid Days: ${notPaidDays}\n💵 Total Paid Amount: ${collectedStr}\n🔴 Remaining Amount: ${remainingStr}`;
+    ? `✅ *Payment Received*\n👤 Borrower: ${loan.customer_name}\n💰 Amount: ${amountStr}\n💳 Method: ${payment.payment_method}\n👷 Collected by: ${collectorTag}\n🗒 Notes: ${payment.notes || 'None'}\n📅 Date: ${dateLabel}\n📊 Total Paid Days: ${paidDays}\n❌ Not Paid Days: ${notPaidDays}\n🟠 Not Paid Amount: ${notPaidAmountStr}\n💵 Total Paid Amount: ${collectedStr}\n🔴 Remaining Amount: ${remainingStr}`
+    : `⚠️ *Not Paid Today*\n👤 Borrower: ${loan.customer_name}\n👷 Visited by: ${collectorTag}\n🗒 Notes: ${payment.notes || 'None'}\n📅 Date: ${dateLabel}\n📊 Total Paid Days: ${paidDays}\n❌ Not Paid Days: ${notPaidDays}\n🟠 Not Paid Amount: ${notPaidAmountStr}\n💵 Total Paid Amount: ${collectedStr}\n🔴 Remaining Amount: ${remainingStr}`;
 
   const borrowerMsg = isPaidDay
-    ? `✅ *Payment Confirmation*\nHello ${loan.customer_name},\nYour payment of ${amountStr} (${payment.payment_method}) has been received.\n📅 Date: ${dateLabel}\n📊 Total Paid Days: ${paidDays}\n❌ Not Paid Days: ${notPaidDays}\n💵 Total Paid Amount: ${collectedStr}\n💰 Remaining Amount: ${remainingStr}\nThank you! — DigiVasool`
-    : `⚠️ *Payment Reminder*\nHello ${loan.customer_name},\nWe noted no payment was collected from you today.\n📅 Date: ${dateLabel}\n📊 Total Paid Days: ${paidDays}\n❌ Not Paid Days: ${notPaidDays}\n💵 Total Paid Amount: ${collectedStr}\n💰 Remaining Amount: ${remainingStr}\nThank you! — DigiVasool`;
+    ? `✅ *Payment Confirmation*\nHello ${loan.customer_name},\nYour payment of ${amountStr} (${payment.payment_method}) has been received.\n📅 Date: ${dateLabel}\n📊 Total Paid Days: ${paidDays}\n❌ Not Paid Days: ${notPaidDays}\n🟠 Not Paid Amount: ${notPaidAmountStr}\n💵 Total Paid Amount: ${collectedStr}\n💰 Remaining Amount: ${remainingStr}\nThank you! — DigiVasool`
+    : `⚠️ *Payment Reminder*\nHello ${loan.customer_name},\nWe noted no payment was collected from you today.\n📅 Date: ${dateLabel}\n📊 Total Paid Days: ${paidDays}\n❌ Not Paid Days: ${notPaidDays}\n🟠 Not Paid Amount: ${notPaidAmountStr}\n💵 Total Paid Amount: ${collectedStr}\n💰 Remaining Amount: ${remainingStr}\nThank you! — DigiVasool`;
 
   return {
     notify_borrower_url: loan.customer_phone ? buildWhatsAppUrl(loan.customer_phone, borrowerMsg) : null,

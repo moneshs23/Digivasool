@@ -1,19 +1,27 @@
 import { useState } from 'react';
-import { useAppData } from '../../context/AppDataContext';
+import { useAppData, ZONES } from '../../context/AppDataContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { Download, FileText, PieChart, Inbox, ClipboardList, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Download, FileText, PieChart, Inbox, ClipboardList, AlertCircle, CheckCircle2, BarChart3, TrendingUp, Wallet, Layers, MapPin, Target, Calendar } from 'lucide-react';
+import {
+  ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart as RePieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from 'recharts';
+
+const CHART_COLORS = ['#4f46e5', '#059669', '#d97706', '#dc2626', '#0891b2', '#8b5cf6', '#db2777'];
 
 export default function Reports() {
   const { state, derived } = useAppData();
   const { t } = useLanguage();
-  const [reportType, setReportType] = useState('pl');
+  const [reportType, setReportType] = useState('analytics');
   const [toast, setToast] = useState('');
 
   const REPORT_TYPES = [
+    { id: 'analytics',   label: 'Analytics',           icon: BarChart3,     desc: 'Visual overview of all data' },
     { id: 'pl',          label: t('reportPL'),         icon: PieChart,      desc: t('reportPLDesc') },
     { id: 'collection',  label: t('reportCollection'), icon: Inbox,         desc: t('reportCollectionDesc') },
     { id: 'portfolio',   label: t('reportPortfolio'),  icon: ClipboardList, desc: t('reportPortfolioDesc') },
     { id: 'overdue',     label: t('reportOverdue'),    icon: AlertCircle,   desc: t('reportOverdueDesc') },
+    { id: 'monthly',     label: 'Monthly Report',      icon: Calendar,      desc: 'Month-wise collection & expense trend' },
   ];
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
@@ -29,6 +37,64 @@ export default function Reports() {
 
   const overdueItems = state.installments.filter(i => i.status === 'overdue');
   const collectionData = state.collectionHistory.slice(-14);
+
+  // ── Analytics aggregations (visualize every entity in AppDataContext) ─────
+  const installmentStatusData = ['paid', 'partial', 'unpaid', 'overdue'].map(s => ({
+    name: s.charAt(0).toUpperCase() + s.slice(1),
+    value: state.installments.filter(i => i.status === s).length,
+  })).filter(d => d.value > 0);
+
+  const expenseByCategory = Object.values(
+    state.expenses.reduce((acc, e) => {
+      acc[e.category] = acc[e.category] || { name: e.category, value: 0 };
+      acc[e.category].value += e.amount;
+      return acc;
+    }, {})
+  );
+
+  const loanTypeData = Object.values(
+    state.loans.reduce((acc, l) => {
+      acc[l.type] = acc[l.type] || { name: l.type.replace('_', ' '), count: 0, principal: 0 };
+      acc[l.type].count += 1;
+      acc[l.type].principal += l.principal;
+      return acc;
+    }, {})
+  );
+
+  const zoneData = ZONES
+    .map(z => ({ name: z, count: state.borrowers.filter(b => b.zone === z).length }))
+    .filter(z => z.count > 0);
+
+  const collectorPerformanceData = state.staff
+    .filter(s => s.role === 'collector')
+    .map(s => ({ name: s.name, target: s.target, collected: s.collected }));
+
+  // ── Monthly aggregation (collection, target, expenses, capital, disbursal) ─
+  const monthKey = (dateStr) => dateStr.slice(0, 7);
+  const monthLabel = (key) => new Date(`${key}-01`).toLocaleDateString('en', { month: 'short', year: 'numeric' });
+  const monthlyMap = {};
+  const ensureMonth = (key) => (monthlyMap[key] ||= { key, collected: 0, target: 0, expenses: 0, capital: 0, newLoans: 0, disbursed: 0 });
+  state.collectionHistory.forEach(c => {
+    const row = ensureMonth(monthKey(c.date));
+    row.collected += c.amount;
+    row.target += c.target;
+  });
+  state.expenses.forEach(e => { ensureMonth(monthKey(e.date)).expenses += e.amount; });
+  state.capital.forEach(c => { ensureMonth(monthKey(c.date)).capital += c.amount; });
+  state.loans.forEach(l => {
+    const row = ensureMonth(monthKey(l.startDate));
+    row.newLoans += 1;
+    row.disbursed += l.principal;
+  });
+  const monthlyData = Object.values(monthlyMap)
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map(row => ({ ...row, label: monthLabel(row.key), net: row.collected - row.expenses }));
+  const monthlyTotals = monthlyData.reduce((acc, r) => ({
+    collected: acc.collected + r.collected,
+    expenses: acc.expenses + r.expenses,
+    disbursed: acc.disbursed + r.disbursed,
+    newLoans: acc.newLoans + r.newLoans,
+  }), { collected: 0, expenses: 0, disbursed: 0, newLoans: 0 });
 
   return (
     <div style={{ animation: 'fadeUp .4s ease' }}>
@@ -46,7 +112,7 @@ export default function Reports() {
       </div>
 
       {/* Report Type Selector */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
         {REPORT_TYPES.map(r => (
           <div key={r.id} onClick={() => setReportType(r.id)} style={{ borderRadius: 14, padding: 16, cursor: 'pointer', transition: 'all .2s', border: `2px solid ${reportType === r.id ? 'var(--brand)' : 'var(--border)'}`, background: reportType === r.id ? 'var(--brand-soft)' : 'var(--surface)' }}>
             <div style={{ marginBottom: 8, color: reportType === r.id ? 'var(--brand-light)' : 'var(--text-2)' }}><r.icon size={22} /></div>
@@ -55,6 +121,128 @@ export default function Reports() {
           </div>
         ))}
       </div>
+
+      {/* Analytics — visual overview of all data */}
+      {reportType === 'analytics' && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 20 }}>
+            {[
+              { label: 'Total Capital',    value: totalCapital,           color: 'var(--brand-light)' },
+              { label: 'Total Disbursed',  value: derived.totalDisbursed, color: 'var(--cyan)' },
+              { label: 'Total Collected',  value: totalCollected,         color: 'var(--green)' },
+              { label: 'Not Paid Amount',  value: totalOutstanding,       color: 'var(--red)' },
+              { label: 'Total Expenses',   value: totalExpenses,          color: 'var(--red)' },
+            ].map(s => (
+              <div key={s.label} className="card">
+                <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>{s.label}</div>
+                <div style={{ fontSize: 24, fontWeight: 900, color: s.color, fontFamily: 'var(--mono)', marginTop: 6 }}>₹{s.value.toLocaleString()}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="chart-card" style={{ marginBottom: 16 }}>
+            <div className="chart-title"><TrendingUp size={16} style={{ color: 'var(--green)' }} />Collection Trend — Last 30 Days</div>
+            <ResponsiveContainer width="100%" height={260}>
+              <AreaChart data={state.collectionHistory}>
+                <defs>
+                  <linearGradient id="collectedFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#059669" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#059669" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(15,23,42,0.08)" vertical={false} />
+                <XAxis dataKey="day" tick={{ fontSize: 11 }} interval={2} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
+                <Tooltip formatter={(v, name) => [`₹${v.toLocaleString()}`, name]} />
+                <Legend />
+                <Area type="monotone" dataKey="target" stroke="#9297a8" strokeDasharray="4 4" fill="none" name="Target" />
+                <Area type="monotone" dataKey="amount" stroke="#059669" fill="url(#collectedFill)" name="Collected" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 16 }}>
+            <div className="chart-card">
+              <div className="chart-title"><PieChart size={16} style={{ color: 'var(--brand-light)' }} />Loans by Status</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <RePieChart>
+                  <Pie data={loanByStatus.map(s => ({ name: s.name, value: s.count }))} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                    {loanByStatus.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip />
+                </RePieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="chart-card">
+              <div className="chart-title"><ClipboardList size={16} style={{ color: 'var(--cyan)' }} />Installments by Status</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <RePieChart>
+                  <Pie data={installmentStatusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                    {installmentStatusData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip />
+                </RePieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="chart-card">
+              <div className="chart-title"><Wallet size={16} style={{ color: 'var(--amber)' }} />Expenses by Category</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <RePieChart>
+                  <Pie data={expenseByCategory} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                    {expenseByCategory.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v) => `₹${v.toLocaleString()}`} />
+                </RePieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+            <div className="chart-card">
+              <div className="chart-title"><Layers size={16} style={{ color: 'var(--brand-light)' }} />Loans by Type</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={loanTypeData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="#4f46e5" radius={[6, 6, 0, 0]} name="Loan Count" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="chart-card">
+              <div className="chart-title"><MapPin size={16} style={{ color: 'var(--red)' }} />Borrowers by Zone</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={zoneData} layout="vertical" margin={{ left: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={90} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="#0891b2" radius={[0, 6, 6, 0]} name="Borrowers" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="chart-card">
+              <div className="chart-title"><Target size={16} style={{ color: 'var(--green)' }} />Collector Performance</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={collectorPerformanceData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(v) => `₹${v.toLocaleString()}`} />
+                  <Legend />
+                  <Bar dataKey="target" fill="#9297a8" radius={[6, 6, 0, 0]} name="Target" />
+                  <Bar dataKey="collected" fill="#059669" radius={[6, 6, 0, 0]} name="Collected" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* P&L Report */}
       {reportType === 'pl' && (
@@ -80,16 +268,18 @@ export default function Reports() {
         <div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>{t('dateLabel')}</th><th>{t('tableDay')}</th><th>{t('collectedLabel')}</th><th>{t('tableTarget')}</th><th>{t('tableAchievement')}</th></tr></thead>
+              <thead><tr><th>{t('dateLabel')}</th><th>{t('tableDay')}</th><th>{t('collectedLabel')}</th><th>{t('tableTarget')}</th><th>Not Paid</th><th>{t('tableAchievement')}</th></tr></thead>
               <tbody>
                 {collectionData.slice(-7).map((d, i) => {
                   const pct = Math.round((d.amount / d.target) * 100);
+                  const notPaid = Math.max(d.target - d.amount, 0);
                   return (
                     <tr key={i}>
                       <td style={{ fontSize: 13 }}>{d.date}</td>
                       <td style={{ fontWeight: 600 }}>{d.day}</td>
                       <td style={{ fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--mono)' }}>₹{d.amount.toLocaleString()}</td>
                       <td style={{ fontFamily: 'var(--mono)' }}>₹{d.target.toLocaleString()}</td>
+                      <td style={{ fontFamily: 'var(--mono)', color: notPaid > 0 ? 'var(--red)' : 'var(--text-2)' }}>₹{notPaid.toLocaleString()}</td>
                       <td><span className={`badge ${pct >= 100 ? 'badge-green' : pct >= 75 ? 'badge-amber' : 'badge-red'}`}>{pct}%</span></td>
                     </tr>
                   );
@@ -114,18 +304,22 @@ export default function Reports() {
           </div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>{t('tableBorrower')}</th><th>{t('tableType')}</th><th>{t('tablePrincipal')}</th><th>{t('tableTotalDue')}</th><th>{t('collectedLabel')}</th><th>{t('tableStatus')}</th></tr></thead>
+              <thead><tr><th>{t('tableBorrower')}</th><th>{t('tableType')}</th><th>{t('tablePrincipal')}</th><th>{t('tableTotalDue')}</th><th>{t('collectedLabel')}</th><th>Not Paid</th><th>{t('tableStatus')}</th></tr></thead>
               <tbody>
-                {state.loans.map(l => (
-                  <tr key={l.id}>
-                    <td style={{ fontWeight: 700 }}>{l.borrowerName}</td>
-                    <td><span className="badge badge-indigo" style={{ textTransform: 'capitalize' }}>{l.type.replace('_',' ')}</span></td>
-                    <td style={{ fontFamily: 'var(--mono)' }}>₹{l.principal.toLocaleString()}</td>
-                    <td style={{ fontFamily: 'var(--mono)' }}>₹{l.total.toLocaleString()}</td>
-                    <td style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>₹{l.collectedAmount.toLocaleString()}</td>
-                    <td><span className={`badge ${l.status==='active'?'badge-green':l.status==='closed'?'badge-gray':'badge-red'}`}>{l.status}</span></td>
-                  </tr>
-                ))}
+                {state.loans.map(l => {
+                  const notPaid = Math.max(l.total - l.collectedAmount, 0);
+                  return (
+                    <tr key={l.id}>
+                      <td style={{ fontWeight: 700 }}>{l.borrowerName}</td>
+                      <td><span className="badge badge-indigo" style={{ textTransform: 'capitalize' }}>{l.type.replace('_',' ')}</span></td>
+                      <td style={{ fontFamily: 'var(--mono)' }}>₹{l.principal.toLocaleString()}</td>
+                      <td style={{ fontFamily: 'var(--mono)' }}>₹{l.total.toLocaleString()}</td>
+                      <td style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>₹{l.collectedAmount.toLocaleString()}</td>
+                      <td style={{ fontFamily: 'var(--mono)', color: notPaid > 0 ? 'var(--red)' : 'var(--text-2)' }}>₹{notPaid.toLocaleString()}</td>
+                      <td><span className={`badge ${l.status==='active'?'badge-green':l.status==='closed'?'badge-gray':'badge-red'}`}>{l.status}</span></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -159,6 +353,69 @@ export default function Reports() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Monthly Report */}
+      {reportType === 'monthly' && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+            {[
+              { label: 'Collected (period)', value: monthlyTotals.collected, color: 'var(--green)' },
+              { label: 'Expenses (period)',  value: monthlyTotals.expenses,  color: 'var(--red)' },
+              { label: 'Disbursed (period)', value: monthlyTotals.disbursed, color: 'var(--cyan)' },
+              { label: 'Not Paid Amount',    value: totalOutstanding,        color: 'var(--red)' },
+            ].map(s => (
+              <div key={s.label} className="card">
+                <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>{s.label}</div>
+                <div style={{ fontSize: 24, fontWeight: 900, color: s.color, fontFamily: 'var(--mono)', marginTop: 6 }}>₹{s.value.toLocaleString()}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="chart-card" style={{ marginBottom: 16 }}>
+            <div className="chart-title"><Calendar size={16} style={{ color: 'var(--brand-light)' }} />Collected vs Target vs Expenses — Month-wise</div>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={monthlyData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
+                <Tooltip formatter={(v, name) => [`₹${v.toLocaleString()}`, name]} />
+                <Legend />
+                <Bar dataKey="target" fill="#9297a8" radius={[6, 6, 0, 0]} name="Target" />
+                <Bar dataKey="collected" fill="#059669" radius={[6, 6, 0, 0]} name="Collected" />
+                <Bar dataKey="expenses" fill="#dc2626" radius={[6, 6, 0, 0]} name="Expenses" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Month</th><th>{t('collectedLabel')}</th><th>{t('tableTarget')}</th><th>{t('tableAchievement')}</th>
+                  <th>Expenses</th><th>Net Profit</th><th>New Loans</th><th>Disbursed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyData.map(row => {
+                  const pct = row.target > 0 ? Math.round((row.collected / row.target) * 100) : 0;
+                  return (
+                    <tr key={row.key}>
+                      <td style={{ fontWeight: 700 }}>{row.label}</td>
+                      <td style={{ fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--mono)' }}>₹{row.collected.toLocaleString()}</td>
+                      <td style={{ fontFamily: 'var(--mono)' }}>₹{row.target.toLocaleString()}</td>
+                      <td>{row.target > 0 ? <span className={`badge ${pct >= 100 ? 'badge-green' : pct >= 75 ? 'badge-amber' : 'badge-red'}`}>{pct}%</span> : '—'}</td>
+                      <td style={{ fontFamily: 'var(--mono)', color: 'var(--red)' }}>₹{row.expenses.toLocaleString()}</td>
+                      <td style={{ fontFamily: 'var(--mono)', color: row.net >= 0 ? 'var(--green)' : 'var(--red)' }}>₹{row.net.toLocaleString()}</td>
+                      <td style={{ fontFamily: 'var(--mono)' }}>{row.newLoans}</td>
+                      <td style={{ fontFamily: 'var(--mono)' }}>₹{row.disbursed.toLocaleString()}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

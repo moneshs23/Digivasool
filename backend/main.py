@@ -699,6 +699,7 @@ async def record_payment(loan_id: str, payment: LoanPaymentCreate, user=Depends(
     new_pending = loan["due_amount"] - new_collected
     new_days_paid = loan["total_days_paid"] + (1 if is_paid_day else 0)
     new_days_not_paid = loan.get("total_days_not_paid", 0) + (0 if is_paid_day else 1)
+    new_not_paid_amount = new_days_not_paid * loan.get("repayment_amount", 0)
     new_status = "closed" if new_pending <= 0 else loan["status"]
 
     loan_ref.update({
@@ -735,6 +736,7 @@ async def record_payment(loan_id: str, payment: LoanPaymentCreate, user=Depends(
             f"📅 Date: {date_str}\n"
             f"📊 Total Paid Days: {new_days_paid}\n"
             f"❌ Not Paid Days: {new_days_not_paid}\n"
+            f"🟠 Not Paid Amount: ₹{new_not_paid_amount:,.0f}\n"
             f"💵 Total Paid Amount: ₹{new_collected:,.0f}\n"
             f"🔴 Remaining Amount: ₹{max(new_pending, 0):,.0f}"
         )
@@ -745,6 +747,7 @@ async def record_payment(loan_id: str, payment: LoanPaymentCreate, user=Depends(
             f"📅 Date: {date_str}\n"
             f"📊 Total Paid Days: {new_days_paid}\n"
             f"❌ Not Paid Days: {new_days_not_paid}\n"
+            f"🟠 Not Paid Amount: ₹{new_not_paid_amount:,.0f}\n"
             f"💵 Total Paid Amount: ₹{new_collected:,.0f}\n"
             f"💰 Remaining Amount: ₹{max(new_pending, 0):,.0f}\n"
             f"Thank you! — DigiVasool"
@@ -758,6 +761,7 @@ async def record_payment(loan_id: str, payment: LoanPaymentCreate, user=Depends(
             f"📅 Date: {date_str}\n"
             f"📊 Total Paid Days: {new_days_paid}\n"
             f"❌ Not Paid Days: {new_days_not_paid}\n"
+            f"🟠 Not Paid Amount: ₹{new_not_paid_amount:,.0f}\n"
             f"💵 Total Paid Amount: ₹{new_collected:,.0f}\n"
             f"🔴 Remaining Amount: ₹{max(new_pending, 0):,.0f}"
         )
@@ -768,6 +772,7 @@ async def record_payment(loan_id: str, payment: LoanPaymentCreate, user=Depends(
             f"📅 Date: {date_str}\n"
             f"📊 Total Paid Days: {new_days_paid}\n"
             f"❌ Not Paid Days: {new_days_not_paid}\n"
+            f"🟠 Not Paid Amount: ₹{new_not_paid_amount:,.0f}\n"
             f"💵 Total Paid Amount: ₹{new_collected:,.0f}\n"
             f"💰 Remaining Amount: ₹{max(new_pending, 0):,.0f}\n"
             f"Thank you! — DigiVasool"

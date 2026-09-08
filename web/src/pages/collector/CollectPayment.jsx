@@ -44,9 +44,12 @@ function resolveProofUrl(url) {
 }
 
 function buildReportMessage(loan) {
+  const notPaidDays = Number(loan.total_days_not_paid || 0);
+  const notPaidAmount = notPaidDays * Number(loan.repayment_amount || 0);
   return `Hi ${loan.customer_name}, here is your collection report:\n` +
     `✅ Total Paid Days: ${Number(loan.total_days_paid || 0)}\n` +
-    `❌ Not Paid Days: ${Number(loan.total_days_not_paid || 0)}\n` +
+    `❌ Not Paid Days: ${notPaidDays}\n` +
+    `🟠 Not Paid Amount: ${money(notPaidAmount)}\n` +
     `💰 Total Paid Amount: ${money(loan.collected_amount)}\n` +
     `🔴 Remaining Amount: ${money(loan.pending_amount)}`;
 }
