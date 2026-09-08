@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAppData, ZONES } from '../../context/AppDataContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { Download, FileText, PieChart, Inbox, ClipboardList, AlertCircle, CheckCircle2, BarChart3, TrendingUp, Wallet, Layers, MapPin, Target, Calendar } from 'lucide-react';
+import { Download, FileText, PieChart, Inbox, ClipboardList, AlertCircle, CheckCircle2, BarChart3, TrendingUp, Wallet, Layers, MapPin, Target, Calendar, CalendarDays } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart as RePieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -21,6 +21,7 @@ export default function Reports() {
     { id: 'collection',  label: t('reportCollection'), icon: Inbox,         desc: t('reportCollectionDesc') },
     { id: 'portfolio',   label: t('reportPortfolio'),  icon: ClipboardList, desc: t('reportPortfolioDesc') },
     { id: 'overdue',     label: t('reportOverdue'),    icon: AlertCircle,   desc: t('reportOverdueDesc') },
+    { id: 'weekly',      label: 'Weekly Report',       icon: CalendarDays,  desc: 'Week-wise collection & expense trend' },
     { id: 'monthly',     label: 'Monthly Report',      icon: Calendar,      desc: 'Month-wise collection & expense trend' },
   ];
 
@@ -96,6 +97,44 @@ export default function Reports() {
     newLoans: acc.newLoans + r.newLoans,
   }), { collected: 0, expenses: 0, disbursed: 0, newLoans: 0 });
 
+  // ── Weekly aggregation (collection, target, expenses, disbursal) ──────────
+  const weekStart = (dateStr) => {
+    const d = new Date(`${dateStr}T00:00:00`);
+    const day = d.getDay();
+    d.setDate(d.getDate() + ((day === 0 ? -6 : 1) - day));
+    return d;
+  };
+  const weekKey = (dateStr) => weekStart(dateStr).toISOString().slice(0, 10);
+  const weekLabel = (key) => {
+    const start = new Date(`${key}T00:00:00`);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    const fmt = (d) => d.toLocaleDateString('en', { day: '2-digit', month: 'short' });
+    return `${fmt(start)} – ${fmt(end)}`;
+  };
+  const weeklyMap = {};
+  const ensureWeek = (key) => (weeklyMap[key] ||= { key, collected: 0, target: 0, expenses: 0, newLoans: 0, disbursed: 0 });
+  state.collectionHistory.forEach(c => {
+    const row = ensureWeek(weekKey(c.date));
+    row.collected += c.amount;
+    row.target += c.target;
+  });
+  state.expenses.forEach(e => { ensureWeek(weekKey(e.date)).expenses += e.amount; });
+  state.loans.forEach(l => {
+    const row = ensureWeek(weekKey(l.startDate));
+    row.newLoans += 1;
+    row.disbursed += l.principal;
+  });
+  const weeklyData = Object.values(weeklyMap)
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map(row => ({ ...row, label: weekLabel(row.key), net: row.collected - row.expenses }));
+  const weeklyTotals = weeklyData.reduce((acc, r) => ({
+    collected: acc.collected + r.collected,
+    expenses: acc.expenses + r.expenses,
+    disbursed: acc.disbursed + r.disbursed,
+    newLoans: acc.newLoans + r.newLoans,
+  }), { collected: 0, expenses: 0, disbursed: 0, newLoans: 0 });
+
   return (
     <div style={{ animation: 'fadeUp .4s ease' }}>
       {toast && <div className="toast" style={{ borderLeft: '3px solid var(--green)' }}><CheckCircle2 size={16} style={{ color: 'var(--green)' }} /> {toast}</div>}
@@ -112,7 +151,7 @@ export default function Reports() {
       </div>
 
       {/* Report Type Selector */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
         {REPORT_TYPES.map(r => (
           <div key={r.id} onClick={() => setReportType(r.id)} style={{ borderRadius: 14, padding: 16, cursor: 'pointer', transition: 'all .2s', border: `2px solid ${reportType === r.id ? 'var(--brand)' : 'var(--border)'}`, background: reportType === r.id ? 'var(--brand-soft)' : 'var(--surface)' }}>
             <div style={{ marginBottom: 8, color: reportType === r.id ? 'var(--brand-light)' : 'var(--text-2)' }}><r.icon size={22} /></div>
@@ -353,6 +392,69 @@ export default function Reports() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Weekly Report */}
+      {reportType === 'weekly' && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+            {[
+              { label: 'Collected (period)', value: weeklyTotals.collected, color: 'var(--green)' },
+              { label: 'Expenses (period)',  value: weeklyTotals.expenses,  color: 'var(--red)' },
+              { label: 'Disbursed (period)', value: weeklyTotals.disbursed, color: 'var(--cyan)' },
+              { label: 'Not Paid Amount',    value: totalOutstanding,       color: 'var(--red)' },
+            ].map(s => (
+              <div key={s.label} className="card">
+                <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>{s.label}</div>
+                <div style={{ fontSize: 24, fontWeight: 900, color: s.color, fontFamily: 'var(--mono)', marginTop: 6 }}>₹{s.value.toLocaleString()}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="chart-card" style={{ marginBottom: 16 }}>
+            <div className="chart-title"><CalendarDays size={16} style={{ color: 'var(--brand-light)' }} />Collected vs Target vs Expenses — Week-wise</div>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={weeklyData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
+                <Tooltip formatter={(v, name) => [`₹${v.toLocaleString()}`, name]} />
+                <Legend />
+                <Bar dataKey="target" fill="#9297a8" radius={[6, 6, 0, 0]} name="Target" />
+                <Bar dataKey="collected" fill="#059669" radius={[6, 6, 0, 0]} name="Collected" />
+                <Bar dataKey="expenses" fill="#dc2626" radius={[6, 6, 0, 0]} name="Expenses" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Week</th><th>{t('collectedLabel')}</th><th>{t('tableTarget')}</th><th>{t('tableAchievement')}</th>
+                  <th>Expenses</th><th>Net Profit</th><th>New Loans</th><th>Disbursed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weeklyData.map(row => {
+                  const pct = row.target > 0 ? Math.round((row.collected / row.target) * 100) : 0;
+                  return (
+                    <tr key={row.key}>
+                      <td style={{ fontWeight: 700 }}>{row.label}</td>
+                      <td style={{ fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--mono)' }}>₹{row.collected.toLocaleString()}</td>
+                      <td style={{ fontFamily: 'var(--mono)' }}>₹{row.target.toLocaleString()}</td>
+                      <td>{row.target > 0 ? <span className={`badge ${pct >= 100 ? 'badge-green' : pct >= 75 ? 'badge-amber' : 'badge-red'}`}>{pct}%</span> : '—'}</td>
+                      <td style={{ fontFamily: 'var(--mono)', color: 'var(--red)' }}>₹{row.expenses.toLocaleString()}</td>
+                      <td style={{ fontFamily: 'var(--mono)', color: row.net >= 0 ? 'var(--green)' : 'var(--red)' }}>₹{row.net.toLocaleString()}</td>
+                      <td style={{ fontFamily: 'var(--mono)' }}>{row.newLoans}</td>
+                      <td style={{ fontFamily: 'var(--mono)' }}>₹{row.disbursed.toLocaleString()}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
