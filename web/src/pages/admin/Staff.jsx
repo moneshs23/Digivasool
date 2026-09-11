@@ -101,7 +101,7 @@ export default function Staff() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
+              <div className="grid-cols-3" style={{ gap: 8, marginBottom: 14 }}>
                 {[
                   { id: 'target', label: t('target'),    value: `₹${s.target.toLocaleString()}`,    color: 'var(--text-2)' },
                   { id: 'collected', label: t('collectedLabel'), value: `₹${s.collected.toLocaleString()}`, color: 'var(--green)' },

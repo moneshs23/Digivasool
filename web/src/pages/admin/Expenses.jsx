@@ -95,7 +95,7 @@ export default function Expenses() {
       </div>
 
       {/* P&L Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+      <div className="grid-cols-4" style={{ gap: 12, marginBottom: 24 }}>
         {[
           { id: 'totalInvested', label: t('totalInvested'),  value: totalCapital,   color: 'var(--brand-light)', bg: 'var(--brand-soft)', icon: Briefcase },
           { id: 'totalCollected', label: t('totalCollected'), value: totalCollected, color: 'var(--green)',        bg: 'var(--green-soft)', icon: Inbox },

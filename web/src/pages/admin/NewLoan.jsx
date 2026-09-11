@@ -331,7 +331,7 @@ export default function NewLoan() {
 
             <div style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 16, marginBottom: 16, border: '1px solid var(--border)' }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Charges & Fees (₹)</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <div className="grid-cols-3" style={{ gap: 10 }}>
                 <div>
                   <label className="form-label">Field Visit</label>
                   <input className="form-input" type="number" value={fieldVisit} onChange={e => setFieldVisit(e.target.value)} placeholder="₹0" />
@@ -350,7 +350,7 @@ export default function NewLoan() {
             {calc && (
               <div style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 20, marginBottom: 20, border: '1px solid var(--brand-soft)' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-light)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}><BarChart3 size={14} /> Auto-Calculated Summary</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
+                <div className="grid-cols-3" style={{ gap: 12 }}>
                   {[
                     { label: `Per ${durationLabel.slice(0,-1)}`, value: `₹${calc.installment.toLocaleString()}`, color: 'var(--brand-light)' },
                     { label: 'Loan + Interest', value: `₹${calc.total.toLocaleString()}`, color: 'var(--text)' },

@@ -119,7 +119,7 @@ export default function Ledger() {
       </div>
 
       {/* Summary Strips */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+      <div className="grid-cols-4" style={{ gap: 12, marginBottom: 20 }}>
         {[
           { id: 'totalDueToday', label: t('totalDueToday'), value: `₹${totalDue.toLocaleString()}`, color: 'var(--text)', bg: 'var(--surface-2)' },
           { id: 'collected',     label: t('collectedLabel'), value: `₹${totalCollected.toLocaleString()}`, color: 'var(--green)', bg: 'var(--green-soft)' },

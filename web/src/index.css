@@ -156,12 +156,32 @@ input,button,select,textarea{font-family:var(--font);}
 .chart-title{font-size:14px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px;}
 
 /* ── Tables ── */
-.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+/* overflow-x:auto (not hidden) so wide/data-dense tables scroll horizontally on
+   narrow screens instead of squeezing every column into an unreadable jumble */
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;}
 table{width:100%;border-collapse:collapse;}
-th{background:var(--surface-2);font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text-2);padding:12px 16px;text-align:left;}
+th{background:var(--surface-2);font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text-2);padding:12px 16px;text-align:left;white-space:nowrap;}
 td{padding:14px 16px;font-size:14px;border-bottom:1px solid var(--border);}
 tr:last-child td{border-bottom:none;}
 tr:hover td{background:var(--surface-2);}
+@media (max-width: 860px){
+  .table-wrap table{min-width:640px;}
+}
+
+/* ── Responsive N-column grid utilities ──
+   Use for any fixed-column stat/chart/summary grid so it reflows instead of
+   squashing content on tablet/phone widths. Desktop keeps the requested column
+   count; columns step down at the same breakpoints the rest of the app uses. */
+.grid-cols-2{display:grid;grid-template-columns:repeat(2,1fr);}
+.grid-cols-3{display:grid;grid-template-columns:repeat(3,1fr);}
+.grid-cols-4{display:grid;grid-template-columns:repeat(4,1fr);}
+.grid-cols-5{display:grid;grid-template-columns:repeat(5,1fr);}
+@media (max-width: 860px){
+  .grid-cols-3,.grid-cols-4,.grid-cols-5{grid-template-columns:repeat(2,1fr);}
+}
+@media (max-width: 520px){
+  .grid-cols-2,.grid-cols-3,.grid-cols-4,.grid-cols-5{grid-template-columns:1fr;}
+}
 
 /* ── Badges ── */
 .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.3px;}
@@ -215,7 +235,9 @@ select.form-input option{background:var(--surface-2);}
 }
 
 /* ── Page Header ── */
-.page-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;}
+/* flex-wrap so title + action buttons drop to their own row instead of
+   overflowing off-screen or overlapping on narrow phones */
+.page-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:24px;}
 .page-title{font-size:22px;font-weight:800;}
 .page-subtitle{font-size:13px;color:var(--text-2);margin-top:2px;}
 
@@ -487,6 +509,7 @@ select.form-input option{background:var(--surface-2);}
 .collector-action-panel div strong{grid-column:2;font-size:13px;}
 .collector-action-panel div span{font-size:11px;color:var(--text-2);font-weight:800;}
 .collector-action-panel a,.collector-action-panel button{border:0;background:var(--brand-soft);color:var(--brand);border-radius:999px;padding:9px 13px;font-size:12px;font-weight:900;cursor:pointer;}
+.collector-action-panel .collector-action-panel-buttons{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
 .collector-empty{padding:24px;text-align:center;color:var(--text-2);font-size:13px;background:var(--surface);border:1px dashed var(--border-2);border-radius:16px;}
 .collector-success-page{min-height:calc(100vh - 150px);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding-bottom:24px;}
 .collector-receipt-card{width:100%;max-width:340px;background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:22px 20px;margin-bottom:22px;text-align:center;}

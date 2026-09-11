@@ -151,7 +151,7 @@ export default function Reports() {
       </div>
 
       {/* Report Type Selector */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+      <div className="grid-cols-4" style={{ gap: 12, marginBottom: 24 }}>
         {REPORT_TYPES.map(r => (
           <div key={r.id} onClick={() => setReportType(r.id)} style={{ borderRadius: 14, padding: 16, cursor: 'pointer', transition: 'all .2s', border: `2px solid ${reportType === r.id ? 'var(--brand)' : 'var(--border)'}`, background: reportType === r.id ? 'var(--brand-soft)' : 'var(--surface)' }}>
             <div style={{ marginBottom: 8, color: reportType === r.id ? 'var(--brand-light)' : 'var(--text-2)' }}><r.icon size={22} /></div>
@@ -164,7 +164,7 @@ export default function Reports() {
       {/* Analytics — visual overview of all data */}
       {reportType === 'analytics' && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 20 }}>
+          <div className="grid-cols-5" style={{ gap: 12, marginBottom: 20 }}>
             {[
               { label: 'Total Capital',    value: totalCapital,           color: 'var(--brand-light)' },
               { label: 'Total Disbursed',  value: derived.totalDisbursed, color: 'var(--cyan)' },
@@ -200,7 +200,7 @@ export default function Reports() {
             </ResponsiveContainer>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 16 }}>
+          <div className="grid-cols-3" style={{ gap: 16, marginBottom: 16 }}>
             <div className="chart-card">
               <div className="chart-title"><PieChart size={16} style={{ color: 'var(--brand-light)' }} />Loans by Status</div>
               <ResponsiveContainer width="100%" height={220}>
@@ -238,7 +238,7 @@ export default function Reports() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+          <div className="grid-cols-3" style={{ gap: 16 }}>
             <div className="chart-card">
               <div className="chart-title"><Layers size={16} style={{ color: 'var(--brand-light)' }} />Loans by Type</div>
               <ResponsiveContainer width="100%" height={220}>
@@ -286,7 +286,7 @@ export default function Reports() {
       {/* P&L Report */}
       {reportType === 'pl' && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
+          <div className="grid-cols-3" style={{ gap: 12, marginBottom: 24 }}>
             {[
               { id: 'grossRevenue', label: t('grossRevenue'),   value: totalCollected,     color: 'var(--green)',        note: t('grossRevenueNote') },
               { id: 'totalExpenses', label: t('totalExpenses'),  value: totalExpenses,      color: 'var(--red)',           note: t('totalExpensesNote') },
@@ -332,7 +332,7 @@ export default function Reports() {
       {/* Portfolio */}
       {reportType === 'portfolio' && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
+          <div className="grid-cols-3" style={{ gap: 12, marginBottom: 20 }}>
             {loanByStatus.map(s => (
               <div key={s.id} className="card">
                 <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>{s.name} {t('loansSuffix')}</div>
@@ -398,7 +398,7 @@ export default function Reports() {
       {/* Weekly Report */}
       {reportType === 'weekly' && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+          <div className="grid-cols-4" style={{ gap: 12, marginBottom: 20 }}>
             {[
               { label: 'Collected (period)', value: weeklyTotals.collected, color: 'var(--green)' },
               { label: 'Expenses (period)',  value: weeklyTotals.expenses,  color: 'var(--red)' },
@@ -461,7 +461,7 @@ export default function Reports() {
       {/* Monthly Report */}
       {reportType === 'monthly' && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+          <div className="grid-cols-4" style={{ gap: 12, marginBottom: 20 }}>
             {[
               { label: 'Collected (period)', value: monthlyTotals.collected, color: 'var(--green)' },
               { label: 'Expenses (period)',  value: monthlyTotals.expenses,  color: 'var(--red)' },

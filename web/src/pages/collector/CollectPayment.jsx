@@ -54,6 +54,26 @@ function buildReportMessage(loan) {
     `🔴 Remaining Amount: ${money(loan.pending_amount)}`;
 }
 
+function buildWeeklyReportMessage(loan, payments = []) {
+  const windowStart = new Date();
+  windowStart.setHours(0, 0, 0, 0);
+  windowStart.setDate(windowStart.getDate() - 6);
+  const weekPayments = payments.filter(p => {
+    const d = new Date(p.payment_date);
+    return !Number.isNaN(d.getTime()) && d >= windowStart;
+  });
+  const paidDays = weekPayments.filter(p => Number(p.amount) > 0).length;
+  const notPaidDays = weekPayments.filter(p => Number(p.amount) <= 0).length;
+  const notPaidAmount = notPaidDays * Number(loan.repayment_amount || 0);
+  const paidAmount = weekPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  return `Hi ${loan.customer_name}, here is your weekly collection report:\n` +
+    `✅ Paid Days (Last 7 Days): ${paidDays}\n` +
+    `❌ Not Paid Days (Last 7 Days): ${notPaidDays}\n` +
+    `🟠 Not Paid Amount (Last 7 Days): ${money(notPaidAmount)}\n` +
+    `💰 Total Paid Amount (Last 7 Days): ${money(paidAmount)}\n` +
+    `🔴 Remaining Amount: ${money(loan.pending_amount)}`;
+}
+
 function initials(name = '') {
   return name
     .split(' ')
@@ -447,6 +467,9 @@ export default function CollectPayment() {
     const whatsappUrl = selectedLoan.customer_phone
       ? `https://wa.me/91${String(selectedLoan.customer_phone).replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(buildReportMessage(selectedLoan))}`
       : '';
+    const weeklyWhatsappUrl = selectedLoan.customer_phone
+      ? `https://wa.me/91${String(selectedLoan.customer_phone).replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(buildWeeklyReportMessage(selectedLoan, payments))}`
+      : '';
 
     return (
       <div className="collector-phone-page">
@@ -614,7 +637,10 @@ export default function CollectPayment() {
               <span>Send payment reminder</span>
               <strong>{selectedLoan.customer_phone || 'No phone number'}</strong>
             </div>
-            {whatsappUrl ? <a href={whatsappUrl} target="_blank" rel="noreferrer">REMIND</a> : <button type="button" disabled>REMIND</button>}
+            <div className="collector-action-panel-buttons">
+              {whatsappUrl ? <a href={whatsappUrl} target="_blank" rel="noreferrer">DAILY REPORT</a> : <button type="button" disabled>DAILY REPORT</button>}
+              {weeklyWhatsappUrl ? <a href={weeklyWhatsappUrl} target="_blank" rel="noreferrer">WEEKLY REPORT</a> : <button type="button" disabled>WEEKLY REPORT</button>}
+            </div>
           </section>
         )}
       </div>

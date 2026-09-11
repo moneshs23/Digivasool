@@ -197,7 +197,7 @@ export default function Dashboard() {
       </div>
 
       {/* Recovery + Today progress + Quick actions */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
+      <div className="grid-cols-3" style={{ gap: 16, marginBottom: 16 }}>
         <div className="chart-card card-hover animate-fadeUp-1" style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           <RecoveryRing percent={recoveryRate} />
           <div>
@@ -247,7 +247,7 @@ export default function Dashboard() {
       </div>
 
       {/* Due Today + Overdue + Staff */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+      <div className="grid-cols-3" style={{ gap: 16 }}>
         <div className="chart-card card-hover animate-fadeUp-1">
           <div className="chart-title" style={{ justifyContent: 'space-between' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Clock size={16} style={{ color: 'var(--amber)' }} />{t('dueToday')}</span>
